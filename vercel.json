@@ -1,0 +1,39 @@
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src *; script-src * 'unsafe-inline' 'unsafe-eval'; style-src * 'unsafe-inline'; img-src * data: blob:; connect-src *; font-src *; frame-src *;"
+        }
+      ]
+    }
+  ],
+  "rewrites": [
+    {
+      "source": "/api/klines",
+      "destination": "https://api.binance.com/api/v3/klines"
+    },
+    {
+      "source": "/api/ticker",
+      "destination": "https://api.binance.com/api/v3/ticker/24hr"
+    }
+  ],
+  "functions": {
+    "api/pressure.js": {
+      "memory": 128,
+      "maxDuration": 10
+    },
+    "api/cron-pressure.js": {
+      "memory": 256,
+      "maxDuration": 30
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/cron-pressure",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
