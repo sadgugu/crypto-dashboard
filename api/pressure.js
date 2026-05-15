@@ -13,24 +13,16 @@ module.exports = async function handler(req, res) {
   try {
     const sql = neon(process.env.DATABASE_URL);
 
-    // symbol 파싱 - url.parse 대신 URL 사용
-    let symbol = 'BTCUSDT';
-    try {
-      const url = new URL(req.url, 'https://example.com');
-      symbol = url.searchParams.get('symbol') || 'BTCUSDT';
-    } catch(e) {}
-
     if (req.method === 'GET') {
       const now = Date.now();
       const ago1h  = now - 3600000;
       const ago15m = now - 900000;
       const ago5m  = now - 300000;
 
+      // 실제 컬럼: ts, bp5, bp15, bp1h, weighted, ls, ss
       const rows = await sql`
-        SELECT ts, buy_pct
+        SELECT ts, bp5, bp15, bp1h, weighted, ls, ss
         FROM pressure_history
-        WHERE symbol = ${symbol}
-          AND ts >= ${ago1h}
         ORDER BY ts DESC
         LIMIT 288
       `;
@@ -39,14 +31,15 @@ module.exports = async function handler(req, res) {
         return res.status(200).json({ ok: true, data: null });
       }
 
-      const avg = arr => arr.reduce((a,b)=>a+b,0) / arr.length;
-      const r5  = rows.filter(r => Number(r.ts) >= ago5m).map(r => parseFloat(r.buy_pct));
-      const r15 = rows.filter(r => Number(r.ts) >= ago15m).map(r => parseFloat(r.buy_pct));
-      const r1h = rows.map(r => parseFloat(r.buy_pct));
+      const avg = arr => arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null;
 
-      const bp5  = r5.length  ? avg(r5)  : null;
-      const bp15 = r15.length ? avg(r15) : null;
-      const bp1h = r1h.length ? avg(r1h) : null;
+      const r5  = rows.filter(r => Number(r.ts) >= ago5m).map(r => parseFloat(r.bp5));
+      const r15 = rows.filter(r => Number(r.ts) >= ago15m).map(r => parseFloat(r.bp15||r.bp5));
+      const r1h = rows.map(r => parseFloat(r.bp1h||r.bp5));
+
+      const bp5  = avg(r5);
+      const bp15 = avg(r15);
+      const bp1h = avg(r1h);
       const fb = bp5 ?? bp15 ?? bp1h ?? 50;
       const weighted = ((bp5??fb)*5 + (bp15??fb)*3 + (bp1h??fb)*2) / 10;
       const diff = weighted - 50;
@@ -71,11 +64,12 @@ module.exports = async function handler(req, res) {
     if (req.method === 'POST') {
       const body = req.body || {};
       await sql`
-        INSERT INTO pressure_history (ts, symbol, buy_pct, weighted, ls, ss)
+        INSERT INTO pressure_history (ts, bp5, bp15, bp1h, weighted, ls, ss)
         VALUES (
           ${Number(body.ts) || Date.now()},
-          'BTCUSDT',
           ${parseFloat(body.bp5) || 50},
+          ${parseFloat(body.bp15) || 50},
+          ${parseFloat(body.bp1h) || 50},
           ${parseFloat(body.weighted) || 50},
           ${parseInt(body.lS) || 0},
           ${parseInt(body.sS) || 0}
@@ -87,7 +81,7 @@ module.exports = async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
 
   } catch(e) {
-    console.error('pressure error:', e.message, e.stack);
+    console.error('pressure error:', e.message);
     return res.status(500).json({ ok: false, error: e.message });
   }
 };
